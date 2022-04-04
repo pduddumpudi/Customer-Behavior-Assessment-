@@ -1,0 +1,203 @@
+---
+
+date: "11/7/2021"
+output: html_document
+---
+
+```{r libraries}
+rm(list=ls())
+library(readxl)
+library(Hmisc)
+library(MASS)
+library(caret)
+library(dplyr)
+```
+
+#### **Question 1: Has the online community increased user revenue? (2 points)**
+
+```{r Question 1}
+
+## Setting working directory
+setwd("C:\\Users\\mahen\\OneDrive - University of California, Davis\\Desktop\\School\\BAX 401 Fall - Information, Insight and Impact\\Class 6\\HW3\\")
+
+## Loading dateset
+onemonth_data<-read_excel("Assignment3HW3_Data.xlsx",sheet=2)
+
+## Stacking
+onemonth_data_before <- onemonth_data %>% select(`Month Before`,`Joined?`)
+onemonth_data_before$treated <- 0
+colnames(onemonth_data_before)[1] <- "value"
+
+onemonth_data_after <- onemonth_data %>% select(`Month After`,`Joined?`)
+onemonth_data_after$treated <- 1
+colnames(onemonth_data_after)[1] <- "value"
+
+data <- rbind(onemonth_data_before,onemonth_data_after)
+data$did <- data$`Joined?`*data$treated
+
+## Diff in Diff model
+model <- lm(data$value ~ data$`Joined?` + data$treated + data$did)
+
+## Summary
+summary(model)
+
+```
+
+#####  The coefficient for ‘did’ is the differences-in-differences estimator. The effect is significant at 5% with the treatment having a positive effect. So we can say that revenue has increased with online community
+
+##### On an average the revenue is incresed by 29.018 dollars
+
+
+#### **Question 2: Has the online community led to increased retention? (2 points)**
+
+```{r Question 2}
+
+sixmonth_data<-read_excel("Assignment3HW3_Data.xlsx",sheet=3)
+
+#Model Fitting
+sixlogit<-glm(`Churned at 3 months after launch of the online community` ~ 
+              `Customer Age with Firm at time of launching the online community` + 
+              `Joined?` +
+              `Average Spend Last 3 months of Life with the firm`,data=sixmonth_data,family=binomial(link="logit"))
+
+#coefficients
+summary(sixlogit) 
+
+#Confidence Intervals
+confint(sixlogit) 
+
+## AIC
+AIC(sixlogit)
+
+## Calculating retention probability
+preddata<-with(sixmonth_data,data.frame(`Customer ID`,`Joined?`,
+                                        `Customer Age with Firm at time of launching the online community`,
+                                        `Churned at 3 months after launch of the online community`,
+                                   `Average Spend Last 3 months of Life with the firm`))
+colnames(preddata) <- colnames(sixmonth_data)
+preddata$`Churned at 3 months after launch of the online community` <- NULL
+probchurn<-predict(sixlogit,newdata=preddata,type="response")
+predchurn<-ifelse(probchurn > 0.5, 1,0)
+missclass<-predchurn!=sixmonth_data$`Churned at 3 months after launch of the online community`
+misclasserror<-mean(predchurn!=sixmonth_data$`Churned at 3 months after launch of the online community`)
+print(paste('Accuracy',1-misclasserror))
+
+confMat2<-confusionMatrix(data = as.factor(predchurn),reference = as.factor(sixmonth_data$`Churned at 3 months after launch of the online community`),positive = "1")
+confMat2
+
+## Creating final data set with churn probability
+finaldata<-cbind(sixmonth_data,probchurn,predchurn,missclass)
+
+## Creating retention Probability
+finaldata$retention <- 1-finaldata$probchurn
+
+## Retention model
+retention_model <- lm(finaldata$retention ~ finaldata$`Joined?` + finaldata$`Average Spend Last 3 months of Life with the firm` + finaldata$`Customer Age with Firm at time of launching the online community`)
+
+summary(retention_model)
+```
+#### All the coefficients are significant. We can see that average retention is reduced by 21.3% keeping average spend and customer age constant.
+
+
+#### **Question 3: Has the online community led to an increase in CLV? (Assume a margin of 50% of customer spend) (2 points)**
+
+```{r Question 3}
+
+## CLV Calculation with 10% discount
+finaldata$CLV <- (finaldata$`Average Spend Last 3 months of Life with the firm`/2)* (1.1/(1.1-finaldata$retention))
+
+## CLV Model
+CLV_model <- lm(finaldata$CLV ~ finaldata$`Joined?` + finaldata$`Average Spend Last 3 months of Life with the firm` + finaldata$`Customer Age with Firm at time of launching the online community`)
+
+## Model Summary
+summary(CLV_model)
+
+```
+#### All the coefficients are significant. We can see that average CLV is reduced by 20.98 dollars keeping average spend and customer age constant.
+
+### ADDING Campaign/Organic variable into the model
+
+```{r}
+
+sixmonth_data<-read_excel("Assignment3HW3_Data.xlsx",sheet=4)
+colnames(sixmonth_data)
+#Model Fitting
+sixlogit<-glm(`Churned at 3 months` ~ `Campaign/Organic` +
+                `Customer Age with Firm at time of launching the online community` + 
+                `Joined?` +
+                `Average Spend Last 3 months of Life with the firm`,data=sixmonth_data,family=binomial(link="logit"))
+
+#coefficients
+summary(sixlogit) 
+
+#Confidence Intervals
+confint(sixlogit) 
+
+#exponentiated coefficients
+#exp(mylogit$coefficients)
+
+#exponentiated confidence intervals
+#exp(confint(mylogit))
+
+AIC(sixlogit)
+
+preddata<-with(sixmonth_data,data.frame(`Customer ID`,`Campaign/Organic`,`Joined?`,
+                                        `Customer Age with Firm at time of launching the online community`,
+                                        `Churned at 3 months`,
+                                        `Average Spend Last 3 months of Life with the firm`))
+colnames(preddata) <- c("Customer ID","Campaign/Organic","Joined?",
+                        "Customer Age with Firm at time of launching the online community",
+                        "Churned at 3 months",                                            
+                        "Average Spend Last 3 months of Life with the firm")
+preddata$`Churned at 3 months` <- NULL
+probchurn<-predict(sixlogit,newdata=preddata,type="response")
+predchurn<-ifelse(probchurn > 0.5, 1,0)
+missclass<-predchurn!=sixmonth_data$`Churned at 3 months`
+misclasserror<-mean(predchurn!=sixmonth_data$`Churned at 3 months`)
+print(paste('Accuracy',1-misclasserror))
+
+confMat2<-confusionMatrix(data = as.factor(predchurn),reference = as.factor(sixmonth_data$`Churned at 3 months`),positive = "1")
+confMat2
+
+## Final data set with probability of churn
+finaldata<-cbind(sixmonth_data,probchurn,predchurn,missclass)
+
+## Creating Retention Column
+finaldata$retention <- 1-finaldata$probchurn
+
+## Creating CLV Column with 10% discount
+finaldata$CLV <- (finaldata$`Average Spend Last 3 months of Life with the firm`/2)*(1.1/(1.1-finaldata$retention))
+
+```
+
+#### Revenue
+
+```{r}
+## revenue model
+revenue_model <- lm(finaldata$`Average Spend Last 3 months of Life with the firm` ~ finaldata$`Campaign/Organic` + finaldata$`Joined?` + finaldata$`Customer Age with Firm at time of launching the online community`)
+summary(revenue_model)
+```
+
+#### Retention
+
+```{r}
+## Retenrion Model
+retention_model <- lm(finaldata$retention ~ finaldata$`Campaign/Organic` + finaldata$`Joined?` + finaldata$`Average Spend Last 3 months of Life with the firm` + finaldata$`Customer Age with Firm at time of launching the online community`)
+summary(retention_model)
+```
+
+#### All the coefficients are significant. We can see that the probability of retention is approximately 4.1% less when compared to an organically acquired customer keeping Customer Age and Average Spend Constant
+
+
+#### CLV
+
+```{r}
+## CLV Model
+clv_model <- lm(finaldata$CLV ~ finaldata$`Campaign/Organic` + finaldata$`Joined?` + finaldata$`Average Spend Last 3 months of Life with the firm` + finaldata$`Customer Age with Firm at time of launching the online community`)
+summary(clv_model)
+
+```
+
+
+#### All the coefficients are significant. We can see that CLV of the customer, when acquired using Campaign,is on an average 4.02$ less than the customer acquired organically keeping Customer Age and Average Spend Constant
+
